@@ -1,0 +1,169 @@
+---
+title: "Dog updating markdown"
+author: "Christoph Völter"
+date: '2022-06-21'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+```
+
+
+load data
+
+```{r}
+xdata <- read.csv("data/completed_ross miriam_dog_updating_coding.csv")%>%
+  filter(Subject!="") %>%
+  mutate(first_mistake = as.numeric(ifelse(trial_correct==1, Number_boxes+1, ifelse(second_choice_correct==0, 2, ifelse(third_choice_correct==0,3, ifelse(fourth_choice_correct==0, 4, "")))))) 
+```
+
+
+aggregate the data 
+
+```{r}
+agg.data <- xdata %>%
+  group_by(Subject, Number_boxes, Session) %>%
+  summarise(mean_trial_correct = mean(trial_correct, na.rm=TRUE), mean_number_mistakes = mean(number_redundant_searched, na.rm=TRUE), mean_first_mistake = mean(first_mistake, na.rm=TRUE))
+
+
+agg.data2 <- xdata %>%
+  group_by(Subject, Number_boxes) %>%
+  summarise(mean_trial_correct = mean(trial_correct, na.rm=TRUE), mean_number_mistakes = mean(number_redundant_searched, na.rm=TRUE), mean_first_mistake = mean(first_mistake, na.rm=TRUE))
+
+agg.data2  %>%
+  group_by(Number_boxes) %>%
+  summarise(mean_trial_correct = mean(mean_trial_correct))
+```
+plot data 
+```{r}
+ggplot(data = agg.data, aes(x=as.factor(Number_boxes), y=mean_trial_correct, group=Number_boxes)) +
+  geom_boxplot(outlier.color = "white")+
+  geom_jitter(width=0.2)+
+  labs(x = "Number of boxes", y = "Mean trial correct")+
+  geom_hline(yintercept = 0.09375, lty=2) +
+  geom_hline(yintercept = 0.2222222, lty=2) +
+  geom_hline(yintercept = 0.5, lty=2) +
+  theme_bw()+
+  facet_wrap(~Session)
+  
+
+ggplot(data = agg.data, aes(x=as.factor(Number_boxes), y=mean_number_mistakes, group=Number_boxes)) +
+  geom_boxplot(outlier.color = "white")+
+  geom_jitter(width=0.2)+
+  labs(x = "Number of boxes", y = "Mean number of mistakes")+
+  theme_bw()+
+  facet_wrap(~Session) 
+
+ggplot(data = agg.data, aes(x=as.factor(Number_boxes), y=mean_first_mistake, group=Number_boxes)) +
+  geom_boxplot(outlier.color = "white")+
+  geom_jitter(width=0.2)+
+  labs(x = "Number of boxes", y = "Mean first mistake")+
+  theme_bw()+
+  facet_wrap(~Session) 
+
+```
+
+chance level comparison
+```{r}
+#2 boxes
+agg.data2_2boxes<-agg.data2 %>%
+  filter(Number_boxes==2)
+
+t.test(agg.data2_2boxes$mean_trial_correct, mu=0.5)
+
+t.test(agg.data2_2boxes$mean_trial_correct, mu=1)
+
+#3 boxes
+agg.data2_3boxes<-agg.data2 %>%
+  filter(Number_boxes==3)
+
+t.test(agg.data2_3boxes$mean_trial_correct, mu=0.2222222)
+
+#4 boxes
+agg.data2_4boxes<-agg.data2 %>%
+  filter(Number_boxes==4)
+
+t.test(agg.data2_4boxes$mean_trial_correct, mu=0.09375)
+```
+
+
+
+
+
+comparison across sessions
+```{r}
+
+four_boxes_data <- agg.data #%>%
+  #filter(Number_boxes==4)
+
+
+four_boxes_data$session2 <- jitter(as.numeric(as.factor(four_boxes_data$Session), amount = .0001))
+
+library(gghalves)
+library(ggsignif)
+
+
+session_plot<-ggplot(data = four_boxes_data, aes(x = as.factor(Session), y= mean_trial_correct, group=Session)) +
+      geom_line(aes(x = session2, group = Subject), color = "darkgray", lty = 1, alpha = .3) +
+  
+  geom_point(data = four_boxes_data %>% filter(Session == "1"), aes(x = session2), color = "darkorange", size = 1.5, alpha = .5, ) +
+    geom_point(data = four_boxes_data %>% filter(Session == "2"), aes(x = session2), color = "darkgreen", size = 1.5, alpha = .5, ) +
+
+   geom_half_boxplot(
+     data = four_boxes_data %>% filter(Session == "1"), aes(x = session2, y = mean_trial_correct), position = position_nudge(x = 1.4), 
+     side = "r",outlier.shape = NA, center = TRUE, errorbar.draw = TRUE, width = .05, 
+     fill = 'darkorange', alpha = .5) +
+  
+     geom_half_boxplot(
+     data = four_boxes_data %>% filter(Session == "2"), aes(x = session2, y = mean_trial_correct), position = position_nudge(x = 0.75), 
+     side = "r",outlier.shape = NA, center = TRUE, errorbar.draw = TRUE, width = .05, 
+     fill = 'darkgreen', alpha = .5) +
+   # geom_text(x = 1.4, y = 0.8, label = "***") +
+   # geom_segment(aes(x=0.9, xend=1.9, y = 0.78, yend=0.78))+
+  # Define additional settings
+  xlab("Session") +
+  ylab("Proportion trial correct") +
+  scale_x_continuous(breaks = c(1, 2), labels = c("1", "2"), limits = c(0.75,3)) +
+  theme_classic()+ 
+  facet_wrap(~Number_boxes)
+
+
+ggsave(session_plot, filename = "graphs/dog_updating_session.png", width=10, height=5, scale=0.5)
+
+
+```
+
+Correlations
+```{r}
+library(corrr)
+corr.data <- agg.data %>%
+  filter(Subject!="Grace")%>%
+  select(Subject, Session, Number_boxes, mean_trial_correct)%>%
+    pivot_wider(names_from=Session, values_from = mean_trial_correct)%>%
+  rename(s1="1", s2="2")
+
+cor.test(corr.data$s1[corr.data$Number_boxes==2], corr.data$s2[corr.data$Number_boxes==2])
+cor.test(corr.data$s1[corr.data$Number_boxes==3], corr.data$s2[corr.data$Number_boxes==3])
+cor.test(corr.data$s1[corr.data$Number_boxes==4], corr.data$s2[corr.data$Number_boxes==4])
+
+
+t.test(corr.data$s1[corr.data$Number_boxes==2], corr.data$s2[corr.data$Number_boxes==2])
+t.test(corr.data$s1[corr.data$Number_boxes==3], corr.data$s2[corr.data$Number_boxes==3])
+t.test(corr.data$s1[corr.data$Number_boxes==4], corr.data$s2[corr.data$Number_boxes==4])
+```
+
+Comparison between outer and inner start position
+```{r}
+start.data <- xdata %>%
+  filter(Number_boxes==4)%>%
+  mutate(start_pos=ifelse(first_choice==1 | first_choice==4, "outer", ifelse(first_choice==2 | first_choice==3, "inner", "")))
+
+start.data.agg <- start.data %>%
+  group_by(Subject, start_pos) %>%
+  summarise(mean_trial_correct = mean(trial_correct, na.rm=TRUE)) %>%
+  pivot_wider(names_from=start_pos, values_from = mean_trial_correct)
+```
+

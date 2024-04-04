@@ -1,0 +1,529 @@
+---
+title: "Dog Updating - MC simulation"
+format: html
+editor: visual
+---
+
+```{r}
+#install.packages("gdata")
+
+library(gdata)
+library(tidyverse)
+```
+
+## position first mistake
+
+when do they make mistakes in the sequence?
+
+### dog without memory
+
+```{r}
+n.arms <- 8 #number of cups on the platform
+n.trials <- 1 # number of consecutive trials that need to be correct
+
+iterations <- 10000
+#max.trials=8
+
+loc.error.dumb<-function(n.arms){#totally dumb ape
+	return(anyDuplicated(sample(n.arms, replace=T))) ##position of mistakes in the sequence
+}
+```
+
+```{r}
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.dumb))
+plot(table(xx))
+abline(h=0.05 * iterations, lty=3)
+###plot proportions
+prop.table(table(xx))
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+xx<-replace(xx, xx==0, 9)
+ms0_mean<-mean(xx)
+
+```
+
+```{r}
+ms0<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms0")
+```
+
+### dog with a certain memory size
+
+#MS1
+
+```{r}
+
+memory.size <- 1 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms1<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms1")
+
+xx<-replace(xx, xx==0, 9)
+ms1_mean<-mean(xx)
+
+```
+
+get the sequences
+
+```{r}
+
+ydata<-data.frame()
+loc.error.smart.seq<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(ires[-(1:memory.size)])} ##position of mistakes in the sequence
+
+temp.data<-unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart.seq))
+
+ydata<-data.frame(chosen_arm=temp.data, choice_nr=c("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth")) 
+
+ydata_wide<-as.data.frame(ydata)%>%
+  pivot_wider(names_from = choice_nr, values_from = chosen_arm)%>%
+  unchop(everything())
+
+
+```
+
+#MS2
+
+```{r}
+
+memory.size <- 2 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms2<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms2")
+
+xx<-replace(xx, xx==0, 9)
+ms2_mean<-mean(xx)
+
+```
+
+#MS3
+
+```{r}
+
+memory.size <- 3 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms3<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms3")
+
+xx<-replace(xx, xx==0, 9)
+ms3_mean<-mean(xx)
+```
+
+#MS4
+
+```{r}
+
+memory.size <- 4 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms4<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms4")
+
+xx<-replace(xx, xx==0, 9)
+ms4_mean<-mean(xx)
+
+```
+
+#MS5
+
+```{r}
+
+memory.size <- 5 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms5<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms5")
+
+xx<-replace(xx, xx==0, 9)
+ms5_mean<-mean(xx)
+
+```
+
+#MS6
+
+```{r}
+
+memory.size <- 6 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms6<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms6")
+
+xx<-replace(xx, xx==0, 9)
+ms6_mean<-mean(xx)
+
+```
+
+#MS7
+
+```{r}
+
+memory.size <- 7 #number of cups remembered that subjects chose last
+
+loc.error.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(anyDuplicated(ires[-(1:memory.size)])) } ##position of mistakes in the sequence
+
+
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, iterations), FUN=loc.error.smart))
+
+prop.table(table(xx))
+plot(table(xx))
+abline(h=iterations*0.05, lty=3)
+
+###plot proportions
+plot(prop.table(table(xx)))
+abline(h=0.05, lty=3)
+
+ms7<-as.data.frame(prop.table(table(xx)))%>%
+  rename(first_error = xx, mean_freq = Freq)%>%
+  mutate(group = "ms7")
+
+xx<-replace(xx, xx==0, 9)
+ms7_mean<-mean(xx)
+
+```
+
+# combine data
+
+```{r}
+all_sim_first_mistake<-ms0%>%
+  full_join(ms1)%>%
+  full_join(ms2)%>%
+  full_join(ms3)%>%
+  full_join(ms4)%>%
+  full_join(ms5)%>%
+  full_join(ms6)%>%
+  full_join(ms7)%>%
+  mutate(first_error = fct_recode(as.factor(first_error), "9"="0"))
+
+comp.data.sim<-expand.grid(group=levels(as.factor(all_sim_first_mistake$group)), first_error=as.character(c(2:9)))
+
+all_sim_first_mistake<-all_sim_first_mistake%>%
+  mutate(first_error = as.character(first_error))%>%
+  full_join(comp.data.sim)%>%
+  complete(first_error, fill=list(mean_freq=0))
+
+
+write.csv(all_sim_first_mistake, file = "all_sim_first_mistake.csv")
+```
+
+```{r}
+mean_first_error <- data.frame(first_error_mean_sim = c(ms0_mean, ms1_mean, ms2_mean, ms3_mean, ms4_mean, ms5_mean,ms6_mean, ms7_mean), ms=paste0("ms_", c(0:7)))
+
+write.csv(mean_first_error, file = "all_sim_mean_first_mistake.csv")
+
+
+```
+
+##stop \################################# until here \###############
+
+```{r}
+##distribution of errors in sequence
+memory.size <- 5 #number of cups remembered that subjects chose last
+crit.thresh=6 #when the first error occurs
+
+
+n.simus=1000
+all.res=rep(NA, n.simus)
+for(i in 1:n.simus){
+	res=unlist(lapply(X=rep(n.arms, n.trials), FUN=loc.error.smart))
+	trial.count=n.trials ##starting number of trials
+	while(sum(res>=crit.thresh 	| res<1)<n.trials){
+		res=c(res[-1], loc.error.smart(n.arms))
+		trial.count=trial.count+1
+	}
+	all.res[i]=trial.count
+	print(i)
+}
+
+#significance threshold: number of trials until criterion
+quantile(all.res, 0.05)
+
+##plotting distribution
+source("W:/Statistics/R scripts/Roger/cum_plot.r")
+xx=all.res
+xx[xx>500]=500
+cum.plot(nvec=xx)
+
+#p for ape achieving goal at trial 100:
+
+func<-function(x){mean(all.res<=x)}
+p.values=unlist(lapply(X=n.trials:max.trials, FUN=func))
+p.values
+
+
+```
+
+```{r}
+n.arms = 8 #number of arms in maze
+n.trials = 1 #number of consecutive trials that need to be correct
+memory.size = 3 # number of arms remembered that dogs chose last
+
+
+#max.trials=8
+
+n.corr.dumb <- function(n.arms) {
+  return(length(unique(sample(n.arms, replace = T)))) ##returns number of unique cups
+}#totally dumb dog
+
+
+##distribution of number of trials until criterion
+n.simus=10000
+all.res=rep(NA, n.simus)
+for(i in 1:n.simus){
+	res=unlist(lapply(X=rep(n.arms, n.trials), FUN=n.corr.smart))
+	trial.count=n.trials ##starting number of trials
+	while(sum(res>=crit.thresh)<n.trials){
+		res=c(res[-1], n.corr.smart(n.arms))
+		trial.count=trial.count+1
+	}
+	all.res[i]=trial.count
+	print(i)
+}
+
+```
+
+```{r}
+n.corr.smart<-function(n.arms){
+	ires=c(rep(0, memory.size), rep(NA, n.arms))
+	to.chose=1:n.arms
+	lapply(X=(memory.size+1):(memory.size+n.arms), FUN=function(x){
+		ires[x]<<-resample(x=setdiff(to.chose, ires[(x-memory.size):(x-1)]), size=1)
+	})
+	return(length(unique(ires[-(1:memory.size)])))  ##returns number of unique cups
+}
+```
+
+```{r}
+#plot distribution of the choices
+xx=unlist(lapply(X=rep(n.arms, 10000), FUN=n.corr.smart))
+plot(table(xx))
+abline(h=500, lty=3)
+
+crit.thresh=n.arms #how many of the cups need to be correct
+```
+
+```{r}
+##distribution of number of trials until criterion
+n.simus=10000
+all.res=rep(NA, n.simus)
+for(i in 1:n.simus){
+	res=unlist(lapply(X=rep(n.arms, n.trials), FUN=n.corr.smart))
+	trial.count=n.trials ##starting number of trials
+	while(sum(res>=crit.thresh)<n.trials){
+		res=c(res[-1], n.corr.smart(n.arms))
+		trial.count=trial.count+1
+	}
+	all.res[i]=trial.count
+	print(i)
+}
+
+#save.image("X:/R/EF battery/Updating/ape_simu_6cup.RData")
+
+save.image("X:/R/EF battery/Updating/ape_simu_6cup_ms4.RData")
+#significance threshold: number of trials until criterion
+quantile(all.res, 0.05)
+
+##plotting distribution
+source("W:/Statistics/R scripts/Roger/cum_plot.r")
+xx=all.res
+xx[xx>500]=500
+cum.plot(nvec=xx)
+
+#p for ape achieving goal at trial 100:
+
+func<-function(x){mean(all.res<=x)}
+p.values=unlist(lapply(X=n.trials:max.trials, FUN=func))
+p.values
+
+
+
+
+##group level 
+#
+load("X:/R/EF battery/Updating/ape_simu_6cup_ms3.RData")
+
+#number of subjects 
+sub_total=6
+sub_success=5
+max.trials=8
+
+
+n.corr.subj<-function(sub_total){ #number of subj who reach criterion within max number of trials
+	return(sum(sample(all.res, sub_total, replace=F)<=max.trials))
+}
+
+
+n.simus2=1000
+all.gres=rep(NA, n.simus2)
+for(i in 1:n.simus2){
+gres=unlist(n.corr.subj(sub_total))
+	trial.count2=1 
+	while(gres<sub_success){
+	gres=unlist(n.corr.subj(sub_total))
+			trial.count2=trial.count2+1
+	}
+	all.gres[i]=trial.count2
+	print(i)
+}
+
+
+##plotting distribution
+source("W:/Statistics/R scripts/Roger/cum_plot.r")
+xx=all.gres
+xx[xx>500]=500
+cum.plot(nvec=xx)
+
+#p_value
+mean(all.gres<=1)
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+
+```

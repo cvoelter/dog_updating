@@ -1,0 +1,497 @@
+---
+title: "Updating Dogs - error model"
+author: "Christoph Völter"
+date: "30/05/2023"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+ rm(list=ls())
+library (car)
+library(lme4)
+#library(readr)
+library(tidyverse)
+#library(sjPlot)
+#library(ggthemes)
+#library(ggplot2)
+#library(scales)
+#library(gridExtra)
+#library(psych)
+library(cowplot)
+library(glmmTMB)
+library(ggsignif)
+library("gghalves")
+#library(summarytools)
+source("./functions/diagnostic_fcns.r")
+source("./functions/glmm_stability.r")
+source("./functions/boot_glmm.r")
+source("./functions/boot_glmm2.r")
+# source("../../R scripts/Roger/glmmTMB_stability.r")
+# source("../../R scripts/Roger/boxplotteR.r")
+# source("../../R scripts/Roger/boot_glmm.r")
+# source("../../R scripts/Roger/boot_glmmTMB.r")
+# source("../../R scripts/Roger/corr_exact.r")
+# source("../../R scripts/Roger/drop1_para_glmmtmb.r")
+# source("../../R scripts/Roger/drop1_para.r")
+
+#load(file ="exp2_5s_capuchins_GLMM_error_data_wCI.RData")
+```
+next steps: repeat error model just with self-ordered condition data and with latency from start of trial as additional predictor variable
+
+```{r}
+all.data <- read.csv("data/RM_both_sessions.csv") %>%
+    mutate(second_choice_correct = ifelse(first_arm==sec_arm, 0, 1),
+      third_choice_correct = ifelse(first_arm==third_arm | sec_arm==third_arm, 0,  1),
+      fourth_choice_correct = ifelse(first_arm==fourth_arm | sec_arm==fourth_arm | third_arm==fourth_arm, 0,  1),
+      fifth_choice_correct = ifelse(first_arm==fifth_arm | sec_arm==fifth_arm | third_arm==fifth_arm | fourth_arm==fifth_arm, 0,  1),
+      sixth_choice_correct = ifelse(first_arm==sixth_arm | sec_arm==sixth_arm | third_arm==sixth_arm | fourth_arm==sixth_arm | fifth_arm==sixth_arm, 0,  1),
+      seventh_choice_correct = ifelse(first_arm==sevth_arm | sec_arm==sevth_arm | third_arm==sevth_arm | fourth_arm==sevth_arm | fifth_arm==sevth_arm | sixth_arm==sevth_arm, 0,  1),
+      eight_choice_correct = ifelse(first_arm==eigth_arm | sec_arm==eigth_arm | third_arm==eigth_arm | fourth_arm==eigth_arm | fifth_arm==eigth_arm | sixth_arm==eigth_arm | sevth_arm==eigth_arm, 0,  1),
+  )%>%
+  mutate(Number_arms = 8)
+```
+
+
+### Error model
+```{r}
+number_arms <- 8
+str(all.data)
+test.data.prep = data.frame(
+  all.data[rep(1:nrow(all.data), each = number_arms), c(
+    "CDL_name",
+    "sex",
+    "Age",
+    "Number_arms",
+    "session",
+    "trial_num", 
+    "condition"
+  )],
+  trial.id = rep(1:nrow(all.data), each = number_arms),
+  choice.nr.within.trial = rep(1:number_arms, nrow(all.data)),
+  choice.where = as.vector(unlist(c(t(
+    all.data[, c("first_arm",
+                 "sec_arm",
+                 "third_arm",
+                 "fourth_arm",
+                 "fifth_arm",
+                 "sixth_arm",
+                 "sevth_arm",
+                 "eigth_arm")]
+  )))),
+  choice.correct = as.vector(unlist(c(t(
+    cbind(NA, all.data[, c(
+      "second_choice_correct",
+      "third_choice_correct",
+      "fourth_choice_correct",
+      "fifth_choice_correct",
+      "sixth_choice_correct",
+      "seventh_choice_correct",
+      "eight_choice_correct"
+      )])
+  ))))
+)
+u.trial.id = unique(test.data.prep$trial.id)
+last.choice = rep(NA, nrow(test.data.prep))
+previous.correct = rep(NA, nrow(test.data.prep))
+any.error.earlier = rep(NA, nrow(test.data.prep))
+for (i in 1:length(u.trial.id)) {
+  sel.data = subset(test.data.prep, trial.id == u.trial.id[i])
+  #if(length(unique(sel.data$choice.where[!is.na(sel.data$choice.where)]))<sum(!is.na(sel.data$choice.where)))
+  last.choice[test.data.prep$trial.id == u.trial.id[i]][2:number_arms] = unlist(lapply(2:nrow(sel.data), function(x) {
+    ires = NA
+    if (!is.na(sel.data$choice.where[x])) {
+      xx = which(sel.data$choice.where[1:(x - 1)] == sel.data$choice.where[x])
+      if (length(xx) > 0) {
+        ires = max(xx)
+      }
+    }
+    return(ires)
+  }))
+  previous.correct[test.data.prep$trial.id == u.trial.id[i]] = c(NA, 1, sel.data$choice.correct[2:(number_arms-1)])
+  xx = c(1, sel.data$choice.correct[1:(number_arms-1)])
+  xx[is.na(xx)] = 1
+  any.error.earlier[test.data.prep$trial.id == u.trial.id[i]] = c("no", "yes")[1 +
+                                                                                 cummax(xx == 0)]
+}
+test.data.prep$last.choice = last.choice
+test.data.prep$previous.correct = previous.correct
+test.data.prep$any.error.earlier = any.error.earlier
+test.data = subset(test.data.prep,
+                   choice.nr.within.trial > 1 & !is.na(choice.where))
+
+test.data.prep = subset(test.data.prep,!is.na(choice.where))# 	for(j in 2:nrow(sel.data)){
+test.data = c()
+choice.id = 0
+for (i in 1:length(u.trial.id)) {
+  sel.data = subset(test.data.prep, trial.id == u.trial.id[i])
+  cup.id = 1:8
+  # if (nrow(sel.data) == 2) {
+  #   cup.id = 3:4
+  # } else if (nrow(sel.data) == 3) {
+  #   cup.id = 3:5
+  # } else if (nrow(sel.data) == 4) {
+  #   cup.id = 2:5
+  # } else if (nrow(sel.data) == 5) {
+  #   cup.id = 2:6
+  # } else{
+  #   cup.id = 1:6
+  # }
+  for (j in 2:nrow(sel.data)) {
+    choice.id = choice.id + 1
+    idata = data.frame(sel.data[j,], cup.id = cup.id, choice.id = choice.id)
+    idata$last.choice = unlist(lapply(1:nrow(idata), function(x) {
+      xx = which(sel.data$choice.where[1:(j - 1)] == idata$cup.id[x])
+      if (length(xx) > 0) {
+        return(max(xx))
+      } else{
+        return(NA)
+      }
+    }))
+    if (j > 2) {
+      idata$previous.correct = sel.data$choice.correct[j - 1]
+    } else{
+      idata$previous.correct = 1
+    }
+    idata$any.error.earlier = as.numeric(sum(sel.data$choice.correct[1:(j -
+                                                                          1)] == 0, na.rm = T) > 0)
+    test.data = rbind(test.data, idata)
+  }
+}
+
+test.data = subset(test.data,!is.na(last.choice))
+error.ny = as.numeric(test.data$choice.correct == 0 &
+                        test.data$choice.where == test.data$cup.id)
+xx = tapply(error.ny, test.data$choice.id, sum)
+xx = xx[xx > 0]
+lag.from.last.choice = test.data$choice.nr.within.trial - test.data$last.choice
+test.data$previous.correct = as.factor(c("no", "yes")[1 + as.numeric(test.data$previous.correct)])
+test.data$any.error.earlier = as.factor(test.data$any.error.earlier)
+number.cups = as.vector(table(test.data$choice.id)[as.character(test.data$choice.id)])
+table(number.cups, test.data$Number_arms)
+# cup.is.edge =
+#   (test.data$Number_arms == 8 &
+#      (test.data$cup.id == 1 | test.data$cup.id == 5)) |
+#   (test.data$Number_boxes == 4 &
+#      (test.data$cup.id == 2 | test.data$cup.id == 5)) |
+#   (test.data$Number_boxes == 5 &
+#      (test.data$cup.id == 2 | test.data$cup.id == 6))
+# cup.is.edge = as.factor(c("no", "yes")[1 + as.numeric(cup.is.edge)])
+# cup.is.edge.code = as.numeric(cup.is.edge == levels(cup.is.edge)[2])
+# test.data$cup.is.edge.code = cup.is.edge.code - mean(cup.is.edge.code)
+
+
+
+age_data<-all.data%>%
+  #filter(session == 1)%>%
+  group_by(CDL_name)%>%
+  summarise(Age=mean(as.numeric(Age), na.rm=TRUE))
+
+
+test.data <-
+  data.frame(test.data,
+             lag.from.last.choice,
+             number.cups,
+             # cup.is.edge,
+             error.ny)%>%
+  select(-Age)%>%
+  full_join(age_data)
+  
+
+
+
+
+write.csv(test.data, "data/dog_updating_radial_maze_error_data.csv")
+```
+ choice_where: location (cup id) of current choice
+ cup.id: all arms in which an error could be made
+ number_cups: number of error possibilities
+ lag_from_last_choice: how many choices are in between the current choice and the last choice of this arm
+
+## add duration from start of trial 
+```{r}
+block_data <- read.csv("data/RM_both_sessions.csv",  na.strings=c("#N/A")) %>% 
+  select(Subject = CDL_name, session, block, condition, trial_num)%>%
+  mutate(trial_num = as.integer(ifelse(block == 1, trial_num,
+                                       ifelse(block == 2, trial_num+3, ""))),
+         session = as.numeric(session))%>%
+  select(-block)
+
+s1_time_first_err_data <- read.csv("data/First_Session_Time_Analysis_corrected_2.csv",  na.strings=c("#N/A")) %>% 
+  mutate(session = 1) %>%
+  select(Subject, condition, session, trial_num = trial_number, Trial.start, choice_1 = X1st.choice, choice_2 = X2nd.choice, choice_3 = X3rd.choice, choice_4 = X4th.choice, choice_5 = X5th.choice, choice_6 = X6th.choice, choice_7 = X7th.choice, choice_8 = X8th.choice, choice_9 = X9th.choice)
+
+levels(as.factor(s1_time_first_err_data$Subject))
+
+s2_time_first_err_data <- read.csv("data/Second_Session_Time_Analysis_corrected_2.csv",  na.strings=c("#N/A")) %>% 
+  mutate(session = 2) %>%
+  select(Subject, session, condition, trial_num = trial_number, choice_1 = X1st.choice, choice_2 = X2nd.choice, choice_3 = X3rd.choice, choice_4 = X4th.choice, choice_5 = X5th.choice, choice_6 = X6th.choice, choice_7 = X7th.choice, choice_8 = X8th.choice, choice_9 = X9th.choice)
+
+levels(as.factor(s2_time_first_err_data$Subject))
+
+time_first_err_data <- s1_time_first_err_data %>%
+  full_join(s2_time_first_err_data)%>%
+  mutate(choice_2 = choice_2 - choice_1,
+         choice_3 = choice_3 - choice_1,
+         choice_4 = choice_4 - choice_1,
+         choice_5 = choice_5 - choice_1,
+         choice_6 = choice_6 - choice_1,
+         choice_7 = choice_7 - choice_1,
+         choice_8 = choice_8 - choice_1,
+         choice_9 = choice_9 - choice_1,
+         trial_num = as.integer(ifelse(trial_num>3, trial_num-3, trial_num))
+         )%>%
+  select(-choice_1, -choice_9, -Trial.start) %>%
+  pivot_longer(cols=c(choice_2:choice_8), names_to = "choice", values_to = "duration_from_1st_choice")%>%
+  separate(choice, into = c(NA, "choice.nr.within.trial"))%>%
+  mutate(choice.nr.within.trial = as.integer(choice.nr.within.trial))%>%
+  mutate(Subject = fct_recode(Subject, "Nikita" = "Nikita4"))
+
+
+missing_time_data<-time_first_err_data%>%
+  filter(is.na(duration_from_1st_choice)) %>%
+  select(Subject:trial_num)
+
+levels(as.factor(time_first_err_data$trial_num))
+```
+
+
+
+```{r}
+test.data <- read.csv("data/dog_updating_radial_maze_error_data.csv")%>%
+  filter(CDL_name!="Ylvie")%>%
+  rename(Subject = CDL_name)%>%
+  mutate(Age = as.numeric(ifelse(Subject == "Anubis3", 59, ifelse(Subject == "Ace3", 48, ifelse(Subject == "Nikita", 56, Age)))))%>%
+  mutate(Subject)%>%
+  full_join(time_first_err_data)%>%
+  mutate(check_duration = is.na(duration_from_1st_choice))%>%
+  anti_join(missing_time_data) #remove trials with NAs for the duration_from_1st_choice variable
+
+table(test.data$Subject, test.data$check_duration)
+levels(as.factor(test.data$Subject))
+levels(as.factor(test.data$trial_num))
+```
+
+
+```{r}
+
+xx.fe.re = fe.re.tab(
+  fe.model = "error.ny~condition + lag.from.last.choice+previous.correct+any.error.earlier+sex+Age+trial_num+duration_from_1st_choice",
+  re = "(1|Subject)+(1|choice.id)+(1|trial.id)",
+  other.vars = "number.cups",
+  data = test.data
+)
+xx.fe.re$summary
+
+test.data$z.lag.from.last.choice = as.vector(scale(test.data$lag.from.last.choice))
+test.data$any.error.earlier = as.factor(test.data$any.error.earlier)
+test.data$any.error.earlier.code = as.vector(scale(as.numeric(test.data$any.error.earlier==levels(as.factor(test.data$any.error.earlier))[2]), center=TRUE, scale= FALSE))
+
+test.data$condition <- as.factor(test.data$condition)
+test.data$condition.code = as.vector(scale(as.numeric(test.data$condition==levels(as.factor(test.data$condition))[2]), center=TRUE, scale= FALSE))
+                                                
+test.data$z.trial_number = as.vector(scale(test.data$trial_num))
+test.data$z.session = as.vector(scale(test.data$session))
+test.data$z.age = as.vector(scale(test.data$Age))
+test.data$z.duration_from_1st_choice = as.vector(scale(test.data$duration_from_1st_choice))
+
+```
+
+```{r}
+mean(test.data$lag.from.last.choice)
+
+mean(test.data$Age)
+
+mean(test.data$trial_num)
+
+sd(test.data$lag.from.last.choice)
+sd(test.data$Age)
+sd(test.data$trial_num)
+
+levels(as.factor(test.data$Subject))
+
+table(test.data$Subject, test.data$Age)
+```
+
+```{r}
+contr=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1000000))
+
+test.data$ot=log((1/test.data$number.cups))
+
+full = glmer(
+  error.ny ~ condition + z.lag.from.last.choice + z.duration_from_1st_choice + any.error.earlier + sex +
+    z.age + z.trial_number + z.session + offset(ot) +
+    (
+      1 + condition.code + z.lag.from.last.choice + z.duration_from_1st_choice + any.error.earlier.code + z.trial_number + z.session || Subject
+    ) +
+    (1 | choice.id) + (1 | trial.id),
+  family = binomial,
+  data = test.data,
+  control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1000000))
+)
+
+```
+
+
+```{r}
+null = glmer(
+  error.ny ~  z.trial_number +  offset(ot) +
+    (
+      1 + condition.code + z.lag.from.last.choice + z.duration_from_1st_choice + any.error.earlier.code +  z.trial_number + z.session || Subject
+    ) +
+    (1 | choice.id) + (1 | trial.id),
+  family = binomial,
+  data = test.data,
+  control = contr
+)
+
+
+anova(null, full, test="Chisq")
+```
+
+#### Check collinearity
+```{r}
+
+ xres=lm(error.ny~condition + z.lag.from.last.choice + any.error.earlier + z.duration_from_1st_choice + sex +
+    z.age + z.trial_number + z.session + offset(ot) , data=test.data)
+
+vif(xres)
+```
+
+
+
+```{r}
+drop1_full<-drop1(full, test="Chisq")
+drop1_full
+```
+
+
+```{r}
+summary(full)
+```
+
+
+
+```{r}
+test.data<-test.data%>%
+  mutate(sex.c=as.vector(scale(as.numeric(as.factor(sex), scale=FALSE))))
+
+pred.full.lag=glmer(error.ny~condition.code + lag.from.last.choice + z.duration_from_1st_choice + any.error.earlier.code + sex.c +
+    z.age + z.trial_number + z.session + offset(ot) +
+    (
+      1 + condition.code + z.lag.from.last.choice + z.duration_from_1st_choice + any.error.earlier.code +  z.trial_number + z.session || Subject
+    ) +
+    (1 | choice.id) + (1 | trial.id),
+	family=binomial, data=test.data, control=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1000000)))
+
+
+```
+
+
+```{r}
+save.image("dog_radial_maze_error_model_workspace.Rdata")
+```
+
+```{r}
+load("dog_radial_maze_error_model_workspace.Rdata")
+boot.ci.full=boot.glmm.pred(model.res=full, excl.warnings=F,
+nboots=1000, para=T, n.cores="all-1", resol=1000, level=0.95)
+
+
+
+
+full.stab=glmm.model.stab(model.res=full, contr=contr, para=T)
+table(full.stab$detailed$warnings)
+m.stab.plot(full.stab$summary[,-1])
+
+
+#CIs for plots
+
+pred.full.lag.ci=boot.glmm.pred(model.res=pred.full.lag , resol=100, level=0.95, use="lag.from.last.choice", n.cores="all-1", para=T)
+
+save.image("dog_radial_maze_error_model_workspace_wCI.Rdata")
+```
+
+```{r}
+error_model_output_table <-
+  bind_cols(as.data.frame(summary(full)$coeff),
+            drop1_full
+           # mm1_choice.ci$ci.estimates
+           ) %>%
+  select(
+    Estimate,
+    SE = `Std. Error`,
+  #  LowerCI = X2.5.,
+ #   UpperCI = X97.5.,
+    Chi2 = LRT,
+    df = npar,
+    p = `Pr(Chi)`,
+    z_wald = `z value`,
+    p_wald = `Pr(>|z|)`
+  ) %>% #
+  mutate(across(.cols = c(p), ~ format(round(.x, 3), nsmall = 3))) %>%
+  mutate(across(.cols = c(Estimate:Chi2), ~ format(round(.x, 2), nsmall = 2))) %>%
+  #mutate(across(Chi2:p, ~replace_na(.x, "")))%>%
+  mutate(p = replace(p, p == "0.000", "<0.001"))
+error_model_output_table
+write.csv(error_model_output_table, file = "saves/error_model_output_table2.csv")
+```
+
+
+
+```{r}
+
+
+plot.error.lag.data<-test.data%>%
+  mutate(err=error.ny*((number_arms-1)/number.cups))%>%
+ # mutate(cup.is.edge=recode(cup.is.edge, "yes"="outer boxes", "no"="inner boxes"))%>%
+  group_by(Subject, lag.from.last.choice )%>%
+  summarise(mean_err2=mean(err))%>%
+  mutate(mean_err = round(mean_err2,2))%>%  
+  group_by(lag.from.last.choice )%>%
+  add_count(mean_err)
+
+p.lag <-
+  ggplot(data = plot.error.lag.data, aes(x = lag.from.last.choice , y = mean_err)) +
+  labs(x = "Lag from last choice", y = "Relative proportion of mistakes") +
+  #geom_point(size = plot.error.lag.data$n, colour = "black", alpha=0.25) +
+  geom_line(
+    aes(group = Subject),
+    lty = 2,
+    alpha = 0.25,
+    colour = "black"
+  ) +
+  geom_boxplot(
+    aes(group = lag.from.last.choice),
+    alpha = 0.5 ,
+    width = 0.4,
+    outlier.colour = "transparent",
+    coef = 0
+  ) +
+  geom_count(alpha = 0.25) +
+  #   geom_errorbar(aes(x=1,y=pred.full.edge.ci$ci.predicted$fitted[1], ymin=pred.full.edge.ci$ci.predicted$lower.cl[1], ymax=pred.full.edge.ci$ci.predicted$upper.cl[1]), width=.3, col="darkblue") +
+  #   geom_point(aes(x=1,y=pred.full.edge.ci$ci.predicted$fitted[1]),  col="darkblue", pch=1) +
+  # geom_errorbar(aes(x=2,y=pred.full.edge.ci$ci.predicted$fitted[2], ymin=pred.full.edge.ci$ci.predicted$lower.cl[2], ymax=pred.full.edge.ci$ci.predicted$upper.cl[2]), width=.3, col="darkblue") +
+  #   geom_point(aes(x=2,y=pred.full.edge.ci$ci.predicted$fitted[2]), col="darkblue", pch=1) +
+  # ylim(0,0.7)+
+  theme_bw() +
+  theme(
+    axis.ticks.x = element_blank(),
+    plot.title = element_text(size = 10),
+    plot.caption = element_text(size = 10)
+  ) +
+  scale_x_continuous(breaks = seq(1, 7, 1))
+
+
+p.lag
+
+ggsave(p.lag, file="graphs/lag_from_last_choice_plot.png", width = 7, height = 5, scale = 0.9)
+
+```
+
+
+
+
+
+

@@ -1,0 +1,516 @@
+---
+title: "Updating Dogs"
+author: "Christoph Völter"
+date: "22/06/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+ rm(list=ls())
+library (car)
+library(lme4)
+library(readr)
+library(tidyverse)
+library(sjPlot)
+library(ggthemes)
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(psych)
+library(cowplot)
+library(glmmTMB)
+library(ggsignif)
+library("gghalves")
+library(summarytools)
+
+```
+
+
+```{r loading data, include = FALSE, warning = FALSE}
+
+all.data <- read.csv("data/completed_ross miriam_dog_updating_coding.csv")%>%
+  filter(Subject!="") %>%
+  mutate(first_mistake = as.numeric(ifelse(trial_correct==1, 0, ifelse(second_choice_correct==0, 2, ifelse(third_choice_correct==0,3, ifelse(fourth_choice_correct==0, 4, ""))))))%>%
+    filter(!is.na(trial_correct))%>%
+  filter(!is.na(number_redundant_searched))
+
+```
+
+
+
+```{r fig.width=12, fig.height=4}
+ydata<-all.data%>%
+  group_by(Subject, Number_boxes, first_mistake)%>%
+  summarise(count.mis = n())
+
+zdata<-all.data%>%
+  group_by(Subject, Number_boxes)%>%
+  summarise(xcount= n())
+
+comp.data<-all.data%>%
+  group_by(Number_boxes, first_mistake)%>%
+  summarise(xcount= n()) %>%
+  select(-xcount)
+
+comp.data <- comp.data[rep(c(1:nrow(comp.data)), times=10),]
+Subject<-rep(levels(as.factor(ydata$Subject)),each=9)
+xxxx<-cbind(Subject=Subject, comp.data)
+
+ydata2<-ydata%>%
+  left_join(zdata)%>%
+  mutate(freq_mistakes=count.mis/xcount)%>%
+  full_join(xxxx) %>%
+  complete(first_mistake, fill=list(freq_mistakes=0))%>%
+  group_by(Number_boxes, first_mistake)%>%
+  summarise(mean_freq=mean(freq_mistakes), se_freq=sd(freq_mistakes, na.rm=TRUE)/sqrt(length(freq_mistakes)))
+
+ydata.all<-all.data%>%
+  group_by(Subject, Number_boxes, first_mistake)%>%
+  summarise(count.mis = n())
+
+ydata3<-ydata.all%>%
+  left_join(zdata)%>%
+  mutate(freq_mistakes=count.mis/xcount)%>%
+  full_join(xxxx) %>%
+  complete(first_mistake, fill=list(freq_mistakes=0))
+```
+
+
+```{r fig.width=12, fig.height=4}
+dodge <- position_dodge(width = 0.9)
+
+p1<-ggplot(data = ydata2, aes(x =as.factor(first_mistake) , y = mean_freq, fill = first_mistake)) +
+  labs(x = NULL, y = "Probability to committ an error", fill = "Error position")+
+		  geom_bar(stat = "identity", position = position_dodge()) +scale_y_continuous(expand = c(0,0)) +
+		  geom_errorbar(aes(ymax =mean_freq+ se_freq, ymin = mean_freq - se_freq), position = dodge, width = 0.2) +
+		  coord_cartesian(ylim = c(0, 1)) +
+    theme_few()+
+		 # geom_vline(xintercept = 2.5, colour="white")+
+	#	 geom_segment(aes(x = 6.5, y = -0.13,  xend=6.5, yend = 0), colour = "black", size=0.5)+
+  facet_grid( ~ Number_boxes, scales = "free_x", space = "free_x")
+
+p1
+
+
+
+```
+
+```{r}
+sim.data<-read.csv("data/mc_simulation_first_mistake_pos.csv")%>%
+  filter(cups<5)%>%
+  rename(Number_boxes=cups)%>%
+  mutate(first_mistake=recode(position_first_mistake, "0"="zno_mistake", "2"="pos_2", "3"="pos_3", "4"="pos_4"))%>%
+  rename(mean_freq=Freq)
+
+
+ydata2<-ydata2%>%
+  mutate(id="Dogs")%>%
+  mutate(ms="Dogs")%>%  
+  mutate(first_mistake=recode(first_mistake, "0"="zno_mistake", "2"="pos_2", "3"="pos_3", "4"="pos_4"))
+
+
+sim.data<-sim.data%>%
+  full_join(ydata2)%>%
+  select(-X, -position_first_mistake)%>%
+    complete(Number_boxes,ms, first_mistake,fill=list(mean_freq=0))%>%
+    mutate(first_mistake=recode(first_mistake, "zno_mistake"="no error", "pos_2"="2nd", "pos_3"="3rd", "pos_4"="4th"))
+```
+
+
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+dodge <- position_dodge(width = 0.9)
+
+sim.data4<-sim.data%>%
+  filter(Number_boxes==4)%>%
+  filter(first_mistake!="5th")%>%
+    filter(ms!="ms3")
+
+p.nb4<-ggplot(data = sim.data4, aes(x =ms , y = mean_freq, fill = first_mistake)) +
+  labs(x = "Simulation of different memory sizes", y = "Probability to committ an error", fill = "Error position")+
+		  geom_bar(stat = "identity", position = position_dodge2(preserve = "single")) +scale_y_continuous(expand = c(0,0)) +
+      scale_fill_manual(values=cbPalette)+
+		  geom_errorbar(aes(ymax =mean_freq+ se_freq, ymin = mean_freq - se_freq), position = dodge, width = 0.2) +
+		  coord_cartesian(ylim = c(0, 1)) +
+    theme_few()+
+     geom_segment(aes(x = 1.5, y = -0.1,  xend=1.5, yend = 1),lty=3, colour = "black", size=0.5)+
+    theme(legend.position = "top", axis.ticks.x=element_blank(), axis.title.x = element_text(size=10, hjust=0.80), plot.title = element_text(size=12), plot.caption = element_text(size=10),plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm"))#+
+ # ggtitle("4 boxes")
+p.nb4
+
+ggsave(p.nb4, filename = "graphs/dog_first_mistake_4boxes.png", width=10, height=6, scale=0.6)
+```
+
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#009E73")
+sim.data3<-sim.data%>%
+  filter(Number_boxes==3)%>%
+  filter(first_mistake!="5th", first_mistake!="4th")%>%
+  filter(ms!="ms3", ms!="ms2")
+  
+
+p.nb3<-ggplot(data = sim.data3, aes(x =ms , y = mean_freq, fill = first_mistake)) +
+  labs(x = "Simulation of different memory sizes", y = "Probability to committ an error", fill = "Error position")+
+		  geom_bar(stat = "identity", position = dodge) +scale_y_continuous(expand = c(0,0)) +#position_dodge2(preserve = "single")
+      scale_fill_manual(values=cbPalette)+
+		  geom_errorbar(aes(ymax =mean_freq+ se_freq, ymin = mean_freq - se_freq), position = dodge, width = 0.2) +
+		  coord_cartesian(ylim = c(0, 1)) +
+    theme_few()+
+     geom_segment(aes(x = 1.5, y = -0.1,  xend=1.5, yend = 1),lty=3, colour = "black", size=0.5)+
+    theme(legend.position = "top", axis.ticks.x=element_blank(), axis.title.x = element_text(size=10, hjust=0.80), plot.title = element_text(size=12), plot.caption = element_text(size=10),plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm"))#+
+ # ggtitle("3 boxes")
+p.nb3
+
+ggsave(p.nb3, filename = "graphs/dog_first_mistake_3boxes.png", width=10, height=6, scale=0.6)
+```
+2 boxes
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#009E73")#,
+sim.data2<-sim.data%>%
+  filter(Number_boxes==2)%>%
+  filter(first_mistake!="5th", first_mistake!="4th", first_mistake!="3th")%>%
+  filter(ms!="ms3", ms!="ms2")
+  
+
+p.nb2<-ggplot(data = sim.data2, aes(x =ms , y = mean_freq, fill = first_mistake)) +
+  labs(x = "Simulation of different memory sizes", y = "Probability to committ an error", fill = "Error position")+
+		  geom_bar(stat = "identity", position = dodge) +scale_y_continuous(expand = c(0,0)) +#position_dodge2(preserve = "single")
+      scale_fill_manual(values=cbPalette)+
+		  geom_errorbar(aes(ymax =mean_freq+ se_freq, ymin = mean_freq - se_freq), position = dodge, width = 0.2) +
+		  coord_cartesian(ylim = c(0, 1)) +
+    theme_few()+
+     geom_segment(aes(x = 1.5, y = -0.1,  xend=1.5, yend = 1),lty=3, colour = "black", size=0.5)+
+    theme(legend.position = "none", axis.ticks.x=element_blank(), axis.title.x = element_text(size=10, hjust=0.97), plot.title = element_text(size=10), plot.caption = element_text(size=10),plot.margin = unit(c(0, 0, 0, 0), "cm"))+
+  ggtitle("2 boxes")
+p.nb2
+```
+
+```{r fig.width=6, fig.height=15}
+plot_grid(p.nb3, p.nb4, p.nb5, ncol = 1, rel_heights= c(1,1,1.12))
+ggsave(".pdf",width=18, height=20, scale = 1.1,  units="cm")
+```
+
+
+```{r}
+ydata3<-ydata3%>%
+  mutate(id="Dogs")%>%
+  mutate(ms="Dogs")
+
+```
+
+#### One-sample t-tests
+```{r}
+ttest.data.all<-ydata%>%
+  left_join(zdata)%>%
+  mutate(freq_mistakes=count.mis/xcount)%>%
+  full_join(xxxx) %>%
+    complete(first_mistake, fill=list(freq_mistakes=0))
+
+```
+
+All data
+```{r}
+
+#all trials vs ms 2
+
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==4 & ttest.data.all$first_mistake==0], mu=0.09130000)
+
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==4 & ttest.data.all$first_mistake==0], mu=0.21950000)
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==4 & ttest.data.all$first_mistake==0], mu=0.50580000)
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==3 & ttest.data.all$first_mistake==0], mu=0.21930000)
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==3 & ttest.data.all$first_mistake==0], mu=0.49590000)
+
+t.test(ttest.data.all$freq_mistakes[ttest.data.all$Number_boxes==3 & ttest.data.all$first_mistake==0], mu=1)
+
+```
+
+############## not updated yet for the dog data from here ##################
+
+### Error model
+```{r}
+str(all.data)
+test.data.prep=data.frame(all.data[rep(1:nrow(all.data), each=5), c("Subject", "Sex", "Species", "Age", "Number_boxes", "Session_within_phase", "Session_overall", "Trial_number")], 
+	trial.id=rep(1:nrow(all.data), each=5),
+	choice.nr.within.trial=rep(1:5, nrow(all.data)), 
+	choice.where=as.vector(unlist(c(t(all.data[, c("first_choice", "second_choice", "third_choice", "fourth_choice", "fifth_choice")])))),
+	choice.correct=as.vector(unlist(c(t(cbind(NA, all.data[, c("second_choice_correct", "third_choice_correct", "fourth_choice_correct", "fifth_choice_correct")]))))))
+u.trial.id=unique(test.data.prep$trial.id)
+last.choice=rep(NA, nrow(test.data.prep))
+previous.correct=rep(NA, nrow(test.data.prep))
+any.error.earlier=rep(NA, nrow(test.data.prep))
+for(i in 1:length(u.trial.id)){
+	sel.data=subset(test.data.prep, trial.id==u.trial.id[i])
+	#if(length(unique(sel.data$choice.where[!is.na(sel.data$choice.where)]))<sum(!is.na(sel.data$choice.where)))
+	last.choice[test.data.prep$trial.id==u.trial.id[i]][2:5]=unlist(lapply(2:nrow(sel.data), function(x){
+		ires=NA
+		if(!is.na(sel.data$choice.where[x])){
+			xx=which(sel.data$choice.where[1:(x-1)]==sel.data$choice.where[x])
+			if(length(xx)>0){
+				ires=max(xx)
+			}
+		}
+		return(ires)
+	}))
+	previous.correct[test.data.prep$trial.id==u.trial.id[i]]=c(NA, 1, sel.data$choice.correct[2:4])
+	xx=c(1, sel.data$choice.correct[1:4])
+	xx[is.na(xx)]=1
+	any.error.earlier[test.data.prep$trial.id==u.trial.id[i]]=c("no", "yes")[1+cummax(xx==0)]
+}
+test.data.prep$last.choice=last.choice
+test.data.prep$previous.correct=previous.correct
+test.data.prep$any.error.earlier=any.error.earlier
+test.data=subset(test.data.prep, choice.nr.within.trial>1 & !is.na(choice.where))
+
+test.data.prep=subset(test.data.prep, !is.na(choice.where))# 	for(j in 2:nrow(sel.data)){
+test.data=c()
+choice.id=0
+for(i in 1:length(u.trial.id)){
+	sel.data=subset(test.data.prep, trial.id==u.trial.id[i])
+	if(nrow(sel.data)==2){
+		cup.id=3:4
+	}else if(nrow(sel.data)==3){
+		cup.id=3:5
+	}else if(nrow(sel.data)==4){
+		cup.id=2:5
+	}else if(nrow(sel.data)==5){
+		cup.id=2:6
+	}else{
+		cup.id=1:6
+	}
+	for(j in 2:nrow(sel.data)){
+		choice.id=choice.id+1
+		idata=data.frame(sel.data[j, ], cup.id=cup.id, choice.id=choice.id)
+		idata$last.choice=unlist(lapply(1:nrow(idata), function(x){
+			xx=which(sel.data$choice.where[1:(j-1)]==idata$cup.id[x])
+			if(length(xx)>0){
+				return(max(xx))
+			}else{
+				return(NA)
+			}
+		}))
+		if(j>2){
+			idata$previous.correct=sel.data$choice.correct[j-1]
+		}else{
+			idata$previous.correct=1
+		}
+		idata$any.error.earlier=as.numeric(sum(sel.data$choice.correct[1:(j-1)]==0, na.rm=T)>0)
+		test.data=rbind(test.data, idata)
+	}
+}	
+
+test.data=subset(test.data, !is.na(last.choice))
+error.ny=as.numeric(test.data$choice.correct==0 & test.data$choice.where==test.data$cup.id)
+xx=tapply(error.ny, test.data$choice.id, sum)
+xx=xx[xx>0]
+lag.from.last.choice=test.data$choice.nr.within.trial-test.data$last.choice
+test.data$previous.correct=as.factor(c("no", "yes")[1+as.numeric(test.data$previous.correct)])
+test.data$any.error.earlier=as.factor(test.data$any.error.earlier)
+number.cups=as.vector(table(test.data$choice.id)[as.character(test.data$choice.id)])
+table(number.cups, test.data$Number_boxes)
+cup.is.edge=
+	(test.data$Number_boxes==3 & (test.data$cup.id==3 | test.data$cup.id==5)) |
+	(test.data$Number_boxes==4 & (test.data$cup.id==2 | test.data$cup.id==5)) |
+	(test.data$Number_boxes==5 & (test.data$cup.id==2 | test.data$cup.id==6))
+cup.is.edge=as.factor(c("no", "yes")[1+as.numeric(cup.is.edge)])
+cup.is.edge.code=as.numeric(cup.is.edge==levels(cup.is.edge)[2])
+test.data$cup.is.edge.code=cup.is.edge.code-mean(cup.is.edge.code)
+
+test.data<-data.frame(test.data,  lag.from.last.choice, number.cups, cup.is.edge, error.ny)
+write.csv(test.data, "exp2_capuchin_error_data.csv")
+
+  view(dfSummary(test.data))
+```
+
+
+```{r}
+test.data<-read.csv("exp2_capuchin_error_data.csv")
+
+test.data<-test.data%>%
+   filter(Subject!="Alba", Subject!="Flojo", Subject!="Fudge", Subject!="Rosa", Subject!="Rufo", Subject!="Toka")%>%
+   droplevels()
+
+xx.fe.re=fe.re.tab(fe.model="error.ny~lag.from.last.choice+previous.correct+any.error.earlier+cup.is.edge+Number_boxes+Sex+Age+Trial_number", re="(1|Subject)+(1|choice.id)+(1|trial.id)", other.vars="number.cups", 
+	data=test.data)
+#xx.fe.re$summary
+
+test.data$z.lag.from.last.choice=as.vector(scale(test.data$lag.from.last.choice))
+test.data$previous.correct.code=as.numeric(test.data$previous.correct==levels(test.data$previous.correct)[2])
+test.data$previous.correct.code=test.data$previous.correct.code-mean(test.data$previous.correct.code)
+test.data$any.error.earlier=as.factor(test.data$any.error.earlier)
+test.data$any.error.earlier.code=as.numeric(test.data$any.error.earlier==levels(test.data$any.error.earlier)[2])
+test.data$any.error.earlier.code=test.data$any.error.earlier.code-mean(test.data$any.error.earlier.code)
+test.data$z.Number_boxes=as.vector(scale(test.data$Number_boxes))
+test.data$z.Trial_number=as.vector(scale(test.data$Trial_number))
+test.data$z.age=as.vector(scale(test.data$Age))
+
+```
+```{r}
+mean(test.data$lag.from.last.choice)
+
+mean(test.data$Number_boxes)
+
+mean(test.data$Age)
+
+mean(test.data$Trial_number)
+
+sd(test.data$lag.from.last.choice)
+sd(test.data$Number_boxes)
+sd(test.data$Age)
+sd(test.data$Trial_number)
+
+
+```
+
+```{r}
+
+
+contr=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1000000))
+
+test.data$ot=log((1/test.data$number.cups))
+
+full=glmer(error.ny~z.lag.from.last.choice+any.error.earlier+z.Number_boxes+cup.is.edge+Sex+z.age+z.Trial_number+offset(ot)+
+	(1+z.lag.from.last.choice+any.error.earlier.code+z.Number_boxes+z.Trial_number+cup.is.edge.code||Subject)+
+	(1|choice.id)+(1|trial.id),
+	family=binomial, data=test.data, control=contr)
+
+
+null=glmer(error.ny~z.Trial_number+offset(ot)+
+	(1+z.lag.from.last.choice+any.error.earlier.code+z.Number_boxes+z.Trial_number+cup.is.edge.code||Subject)+
+	(1|choice.id)+(1|trial.id),
+	family=binomial, data=test.data, control=contr)
+
+anova(null, full, test="Chisq")
+```
+
+#### Check collinearity
+```{r}
+
+ xres=lm(error.ny~z.lag.from.last.choice+any.error.earlier+z.Number_boxes+cup.is.edge+Sex+z.age+z.Trial_number+offset(log((1/number.cups))), data=test.data)
+
+vif(xres)
+```
+
+
+
+```{r}
+drop1(full, test="Chisq")
+```
+
+
+```{r}
+summary(full)
+```
+
+```{r}
+test.data<-test.data%>%
+  mutate(Sex.c=scale(as.numeric(Sex)))
+
+pred.full.edge=glmer(error.ny~z.lag.from.last.choice+any.error.earlier.code+z.Number_boxes+cup.is.edge+Sex.c+z.age+z.Trial_number+offset(ot)+
+	(1+z.lag.from.last.choice+any.error.earlier.code+z.Number_boxes+z.Trial_number+cup.is.edge.code||Subject)+
+	(1|choice.id)+(1|trial.id),
+	family=binomial, data=test.data, control=contr)
+
+pred.full.boxes=glmer(error.ny~z.lag.from.last.choice+any.error.earlier.code+Number_boxes+cup.is.edge.code+Sex.c+z.age+z.Trial_number+offset(ot)+
+	(1+z.lag.from.last.choice+any.error.earlier.code+Number_boxes+z.Trial_number+cup.is.edge.code||Subject)+
+	(1|choice.id)+(1|trial.id),
+	family=binomial, data=test.data, control=contr)
+```
+
+```{r}
+load("exp2_5s_capuchins_GLMM_error_data.Rdata")
+
+boot.ci.full=boot.glmm(model.res=full, excl.warnings=T, nboots=1000, para=T)
+
+
+
+
+full.stab=glmm.model.stab(model.res=full, contr=contr, para=T)
+table(full.stab$detailed$warnings)
+m.stab.plot(full.stab$summary[,-1])
+
+
+#CIs for plots
+
+pred.full.edge.ci=boot.glmm.pred(model.res=pred.full.edge , resol=100, level=0.95, use="cup.is.edge", n.cores="all-1", para=T)
+
+pred.full.boxes.ci=boot.glmm.pred(model.res=pred.full.boxes , resol=100, level=0.95, use="Number_boxes", n.cores="all-1", para=T)
+
+#save.image("exp2_5s_capuchins_GLMM_error_data_wCI.Rdata")
+```
+
+
+```{r}
+
+view(dfSummary(test.data))
+
+plot.error.edge.data<-test.data%>%
+ # filter(Number_boxes==4)%>%
+  mutate(err=error.ny*((Number_boxes-1)/number.cups))%>%
+  mutate(cup.is.edge=recode(cup.is.edge, "yes"="outer boxes", "no"="inner boxes"))%>%
+  group_by(Subject, cup.is.edge )%>%
+  summarise(mean_err2=mean(err))%>%
+  mutate(mean_err = round(mean_err2,2))%>%  
+  group_by(cup.is.edge )%>%
+  add_count(mean_err)
+
+p.edge<-ggplot(data = plot.error.edge.data, aes(x = cup.is.edge , y = mean_err, group=Subject)) +
+  labs(x = "Position of the boxes", y = "")+
+  geom_boxplot(aes(group=cup.is.edge), width=0.4, outlier.colour="white", coef=0)+
+  geom_point(size = plot.error.edge.data$n, colour = "black", alpha=0.25) +
+  geom_line(lty=2, alpha=0.4, colour="black")+
+  geom_errorbar(aes(x=1,y=pred.full.edge.ci$ci.predicted$fitted[1], ymin=pred.full.edge.ci$ci.predicted$lower.cl[1], ymax=pred.full.edge.ci$ci.predicted$upper.cl[1]), width=.3, col="darkblue") +
+  geom_point(aes(x=1,y=pred.full.edge.ci$ci.predicted$fitted[1]),  col="darkblue", pch=1) +
+geom_errorbar(aes(x=2,y=pred.full.edge.ci$ci.predicted$fitted[2], ymin=pred.full.edge.ci$ci.predicted$lower.cl[2], ymax=pred.full.edge.ci$ci.predicted$upper.cl[2]), width=.3, col="darkblue") +
+  geom_point(aes(x=2,y=pred.full.edge.ci$ci.predicted$fitted[2]), col="darkblue", pch=1) +
+  ylim(0,0.7)+
+  theme_few()+
+  theme(axis.ticks.x=element_blank(),  plot.title = element_text(size=10), plot.caption = element_text(size=10))#+
+	#	ggtitle("5 boxes")
+
+
+plot.error.nboxes.data<-test.data%>%
+ # filter(Number_boxes==4)%>%
+  mutate(err=error.ny*((Number_boxes-1)/number.cups))%>%
+  group_by(Subject, Number_boxes )%>%
+  summarise(mean_err2=mean(err))%>%
+  mutate(mean_err = round(mean_err2,2))%>%  
+  group_by(Number_boxes )%>%
+  add_count(mean_err)
+
+ci.4boxes.fitted=(pred.full.boxes.ci$ci.predicted$fitted[50]+pred.full.boxes.ci$ci.predicted$fitted[51])/2
+ci.4boxes.lower=(pred.full.boxes.ci$ci.predicted$lower.cl[50]+pred.full.boxes.ci$ci.predicted$lower.cl[51])/2
+ci.4boxes.upper=(pred.full.boxes.ci$ci.predicted$upper.cl[50]+pred.full.boxes.ci$ci.predicted$upper.cl[51])/2
+  
+p.nboxes<-ggplot(data = plot.error.nboxes.data, aes(x = as.factor(Number_boxes) , y = mean_err, group=Subject)) +
+  labs(x = "Number of boxes", y = "Relative proportion of mistakes")+
+  geom_boxplot(aes(group=Number_boxes), width=0.4, outlier.colour="white", coef=0)+
+  geom_point(size = plot.error.nboxes.data$n, colour = "black", alpha=0.25) +
+  geom_line(lty=2, alpha=0.4, colour="black")+
+  geom_errorbar(aes(x=1,y=pred.full.boxes.ci$ci.predicted$fitted[1], ymin=pred.full.boxes.ci$ci.predicted$lower.cl[1], ymax=pred.full.boxes.ci$ci.predicted$upper.cl[1]), width=.3, col="darkblue") +
+  geom_point(aes(x=1,y=pred.full.boxes.ci$ci.predicted$fitted[1]), col="darkblue", pch=1) +
+  geom_errorbar(aes(x=2,y=ci.4boxes.fitted, ymin=ci.4boxes.lower, ymax=ci.4boxes.upper), width=.3, col="darkblue") +
+  geom_point(aes(x=2,y=ci.4boxes.fitted), col="darkblue", pch=1) +
+  geom_errorbar(aes(x=3,y=pred.full.boxes.ci$ci.predicted$fitted[100], ymin=pred.full.boxes.ci$ci.predicted$lower.cl[100], ymax=pred.full.boxes.ci$ci.predicted$upper.cl[100]), width=.3, col="darkblue") +
+  geom_point(aes(x=3,y=pred.full.boxes.ci$ci.predicted$fitted[100]), col="darkblue", pch=1) +
+  ylim(0,0.7)+
+  theme_few()+
+  theme(axis.ticks.x=element_blank(),  plot.title = element_text(size=10), plot.caption = element_text(size=10))#+
+	#	ggtitle("5 boxes")
+
+
+plot_grid(p.nboxes, p.edge,nrow=1, labels=c("A", "B"))
+
+
+ggsave("GLMM1_error_data_plot_wCI.pdf", width = 8, height = 4, scale = 0.9)
+
+```
+
+
+

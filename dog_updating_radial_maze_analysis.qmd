@@ -1,0 +1,804 @@
+---
+title: "Radial maze analysis"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(ggbeeswarm)
+library(lme4)
+library(car)
+library(ggpubr)
+source("./functions/diagnostic_fcns.r")
+source("./functions/glmm_stability.r")
+source("./functions/boot_glmm.r")
+source("./functions/boot_glmmTMB.r")
+source("./functions/extract_ranef_gmmTMB.r")
+source("./functions/glmmTMB_stability.r")
+```
+
+## Load data
+
+```{r}
+first_session_data <- read.csv("data/RM_FirstVisit.csv") %>%
+  mutate(session = 1)%>%
+  select(-first_arm_, -second_arm_)%>%
+    mutate(sec_pos = ifelse(first_arm==sec_arm, 0, 1),
+      third_pos = ifelse(first_arm==third_arm | sec_arm==third_arm, 0,  1),
+      fourth_pos = ifelse(first_arm==fourth_arm | sec_arm==fourth_arm | third_arm==fourth_arm, 0,  1),
+      fifth_pos = ifelse(first_arm==fifth_arm | sec_arm==fifth_arm | third_arm==fifth_arm | fourth_arm==fifth_arm, 0,  1),
+      sixth_pos = ifelse(first_arm==sixth_arm | sec_arm==sixth_arm | third_arm==sixth_arm | fourth_arm==sixth_arm | fifth_arm==sixth_arm, 0,  1),
+      seventh_pos = ifelse(first_arm==sevth_arm | sec_arm==sevth_arm | third_arm==sevth_arm | fourth_arm==sevth_arm | fifth_arm==sevth_arm | sixth_arm==sevth_arm, 0,  1),
+      eight_pos = ifelse(first_arm==eigth_arm | sec_arm==eigth_arm | third_arm==eigth_arm | fourth_arm==eigth_arm | fifth_arm==eigth_arm | sixth_arm==eigth_arm | sevth_arm==eigth_arm, 0,  1),
+  )
+```
+
+## determine lag from last choice
+
+```{r}
+first_session_data_long <- first_session_data %>%
+  select(CDL_name, block, trial_num, condition, first_arm:eigth_arm) %>%
+  pivot_longer(cols = first_arm:eigth_arm, values_to = "chosen_arm", names_to = "arm_order") %>%
+  group_by(CDL_name, condition, block, trial_num) %>%
+  mutate(duplicate=ifelse(!is.na(chosen_arm), duplicated(chosen_arm), NA),
+         correct = ifelse(!is.na(chosen_arm), ifelse(duplicated(chosen_arm) == TRUE, 0, 1), NA))%>%
+  mutate(lag_from_last_choice = ifelse(chosen_arm==lag(chosen_arm), 1,
+                                      ifelse(chosen_arm==lag(chosen_arm,2), 2,
+                                             ifelse(chosen_arm==lag(chosen_arm,3), 3,
+                                                    ifelse(chosen_arm==lag(chosen_arm,4), 4,
+                                                           ifelse(chosen_arm==lag(chosen_arm, 5), 5,
+                                                                  ifelse(chosen_arm==lag(chosen_arm, 6), 6,
+                                                                         ifelse(chosen_arm==lag(chosen_arm, 7), 7,
+                                                                                NA)))))))) %>%#this variable descibes how many choices ago they entered this arm the last time
+  mutate(choice_order = c(1:8))
+
+
+
+# first_session_data_wide <- first_session_data_long %>%
+#   select(-chosen_arm, -duplicate, -lag_from_last_choice, -choice_order)%>%
+#   pivot_wider(names_from = arm_order, values_from = correct)%>%
+#   rename(first_arm_correct = first_arm, sec_arm_correct = sec_arm, third_arm_correct = third_arm, fourth_arm_correct = fourth_arm, fifth_arm_correct = fifth_arm, sixth_arm_correct = sixth_arm, sevth_arm_correct = sevth_arm, eigth_arm_correct = eigth_arm) %>%
+#   full_join(first_session_data)
+
+
+table(first_session_data_long$trial_num, first_session_data_long$choice_order)
+table(first_session_data_long$CDL_name, first_session_data_long$choice_order)
+```
+
+#determine first error position
+
+```{r}
+first_session_first_error_data <- first_session_data_long %>%
+  filter(duplicate ==TRUE)%>%
+  group_by(CDL_name, condition, block, trial_num) %>%
+  summarise(first_error=min(choice_order))
+
+first_session_data2 <-  first_session_data %>%
+  full_join(first_session_first_error_data) %>%
+  mutate(first_error = as.numeric(ifelse(is.na(first_error), 9, first_error)))
+
+
+```
+
+```{r}
+second_session_data <- read.csv("data/RM_SecondVisit.csv") %>%
+  mutate(session = 2) %>%
+  select(-first_arm_, -second_arm_)
+```
+
+## Calculate average position of first error
+
+```{r}
+count_first_error_data<-first_session_data2%>%
+  group_by(subj, condition, first_error)%>%
+  summarise(count.mis = n())
+
+count_trial_data<-first_session_data2%>%
+  group_by(subj, condition)%>%
+  summarise(xcount= n())
+
+comp.data<-expand.grid(subj=levels(as.factor(first_session_data2$subj)), condition=c("self-ordered", "forced") , first_error=c(2:9))
+
+freq_data<-count_first_error_data%>%
+  left_join(count_trial_data)%>%
+  mutate(freq_mistakes=count.mis/xcount)%>%
+  full_join(comp.data)%>%
+  complete(first_error, fill=list(freq_mistakes=0))
+
+
+
+
+```
+
+##Load in simulation data
+
+```{r}
+all_sim_first_mistake<-read.csv(file = "simulation/all_sim_first_mistake.csv")%>%
+  rename(condition=group)
+
+freq_data_agg <- freq_data %>%
+  group_by(condition, first_error)%>%
+  summarise(mean_freq=mean(freq_mistakes), se_freq=sd(freq_mistakes, na.rm=TRUE)/sqrt(length(freq_mistakes)))%>%
+  ungroup()%>%
+  full_join(all_sim_first_mistake)%>%
+  mutate(condition = fct_relevel(as.factor(condition), "self-ordered", "forced"))
+```
+
+# plot first error position
+
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+dodge <- position_dodge(width = 0.9)
+
+
+first_error_plot<-ggplot(data = freq_data_agg, aes(x = condition, y = mean_freq, fill = as.factor(first_error))) +
+  labs(x = "Simulation of different memory sizes", y = "Probability to committ an error", fill = "Error position") +
+  geom_bar(stat = "identity", position = position_dodge2(preserve = "single")) +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_manual(values = cbPalette) +
+  geom_errorbar(
+    aes(ymax = mean_freq + se_freq, ymin = mean_freq - se_freq),
+    position = dodge,
+    width = 0.2
+  ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_bw() +
+  geom_segment(
+    aes(
+      x = 2.5,
+      y = -0.1,
+      xend = 2.5,
+      yend = 1
+    ),
+    lty = 3,
+    colour = "black",
+    size = 0.5
+  ) +
+  theme(
+   # legend.position = "top",
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_text(size = 10, hjust = 0.80),
+    plot.title = element_text(size = 12),
+    plot.caption = element_text(size = 10),
+    plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm")
+  )
+
+ggsave(first_error_plot, file = "graphs/first_error_plot.png", width =12, height = 5, scale=0.7)
+```
+
+## Compare first error position to simulation
+
+plot raw first error position data
+
+```{r}
+
+ggplot(first_session_data2, aes(x = condition, y = first_error))+
+  geom_boxplot()+
+  #geom_jitter(width=0.2, height=0)+
+  geom_quasirandom(method= "maxout", alpha=0.3)+
+  ylim(2,9)+
+  theme_bw()+
+  labs(y="first error position in sequence", x=NULL)
+
+
+```
+
+```{r}
+
+all_sim_mean_first_mistake<-read.csv(file = "simulation/all_sim_mean_first_mistake.csv")
+
+first_session_data2_agg<-first_session_data2 %>%
+  group_by(subj, condition) %>%
+  summarise(mean_first_error = mean(first_error))
+
+table(first_session_data2_agg$subj, first_session_data2_agg$condition)
+levels(as.factor(first_session_data2_agg$subj))
+```
+
+### plot of aggregated data
+
+```{r}
+
+plot_mean_first_error<-
+  ggplot(first_session_data2_agg, aes(x = condition, y = mean_first_error))+
+  geom_boxplot(alpha=0.5)+
+  #geom_jitter(width=0.2, height=0)+
+  geom_quasirandom( alpha=0.3)+
+  #ylim(3,9)+
+  theme_classic()+
+  labs(y="first error position in sequence", x=NULL)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_0"], color = "firebrick", lty=1)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_1"], color = "firebrick", lty=2)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_2"], color = "firebrick", lty=3)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_3"], color = "firebrick", lty=4)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_4"], color = "firebrick", lty=5)+
+  geom_hline(yintercept = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_5"], color = "firebrick", lty=6)+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_0"]+0.1, label="ms0",color="firebrick")+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_1"]+0.1, label="ms1",color="firebrick")+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_2"]+0.1, label="ms2",color="firebrick")+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_3"]+0.1, label="ms3",color="firebrick")+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_4"]+0.1, label="ms4",color="firebrick")+
+  annotate(geom="text", x=2.5, y=all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_5"]+0.1, label="ms5",color="firebrick")+
+  scale_y_continuous(breaks = seq(from = 3, to = 9, by = 1))
+
+
+ggsave(plot_mean_first_error, file="graphs/plot_mean_first_error.png", width = 6, height = 5, scale =0.7)
+```
+
+### one-sample t-tests to compare to simulation (first error position)
+
+```{r}
+hist(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"])
+hist(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"])
+```
+
+#### ms0
+
+```{r}
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_0"])
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_0"])
+```
+
+--\> significantly better in both conditions compared to ms0
+
+#### ms1
+
+```{r}
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_1"])
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_1"])
+```
+
+--\> significantly better in both conditions compared to ms1
+
+#### ms2
+
+```{r}
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_2"])
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_2"])
+```
+
+--\> significantly better in self-ordered but not forced condition (no significant difference between ms2 and forced condition)
+
+#### ms3
+
+```{r}
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_3"])
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_3"])
+```
+
+--\> no significant difference between self-ordered condition and ms3 but dogs performed significantly worse in the forced condition compared to ms3
+
+#### ms4
+
+```{r}
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="self-ordered"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_4"])
+t.test(first_session_data2_agg$mean_first_error[first_session_data2_agg$condition=="forced"], mu = all_sim_mean_first_mistake$first_error_mean_sim[all_sim_mean_first_mistake$ms=="ms_4"])
+```
+
+--\> significantly worse than ms4 in both conditions
+
+#### comparison between sessions
+
+```{r}
+second_session_data <- read.csv("data/RM_SecondVisit.csv") %>%
+  mutate(session = 2) %>%
+  select(-first_arm_, -second_arm_)%>%
+    mutate(sec_pos = ifelse(first_arm==sec_arm, 0, 1),
+      third_pos = ifelse(first_arm==third_arm | sec_arm==third_arm, 0,  1),
+      fourth_pos = ifelse(first_arm==fourth_arm | sec_arm==fourth_arm | third_arm==fourth_arm, 0,  1),
+      fifth_pos = ifelse(first_arm==fifth_arm | sec_arm==fifth_arm | third_arm==fifth_arm | fourth_arm==fifth_arm, 0,  1),
+      sixth_pos = ifelse(first_arm==sixth_arm | sec_arm==sixth_arm | third_arm==sixth_arm | fourth_arm==sixth_arm | fifth_arm==sixth_arm, 0,  1),
+      seventh_pos = ifelse(first_arm==sevth_arm | sec_arm==sevth_arm | third_arm==sevth_arm | fourth_arm==sevth_arm | fifth_arm==sevth_arm | sixth_arm==sevth_arm, 0,  1),
+      eight_pos = ifelse(first_arm==eigth_arm | sec_arm==eigth_arm | third_arm==eigth_arm | fourth_arm==eigth_arm | fifth_arm==eigth_arm | sixth_arm==eigth_arm | sevth_arm==eigth_arm, 0,  1),
+  )
+```
+
+## determine lag from last choice
+
+```{r}
+second_session_data_long <- second_session_data %>%
+  select(CDL_name, block, trial_num, condition, first_arm:eigth_arm) %>%
+  pivot_longer(cols = first_arm:eigth_arm, values_to = "chosen_arm", names_to = "arm_order") %>%
+  group_by(CDL_name, condition, block, trial_num) %>%
+  mutate(duplicate=ifelse(!is.na(chosen_arm), duplicated(chosen_arm), NA),
+         correct = ifelse(!is.na(chosen_arm), ifelse(duplicated(chosen_arm) == TRUE, 0, 1), NA))%>%
+  mutate(lag_from_last_choice = ifelse(chosen_arm==lag(chosen_arm), 1,
+                                      ifelse(chosen_arm==lag(chosen_arm,2), 2,
+                                             ifelse(chosen_arm==lag(chosen_arm,3), 3,
+                                                    ifelse(chosen_arm==lag(chosen_arm,4), 4,
+                                                           ifelse(chosen_arm==lag(chosen_arm, 5), 5,
+                                                                  ifelse(chosen_arm==lag(chosen_arm, 6), 6,
+                                                                         ifelse(chosen_arm==lag(chosen_arm, 7), 7,
+                                                                                NA)))))))) %>%#this variable descibes how many choices ago they entered this arm the last time
+  mutate(choice_order = c(1:8))
+
+
+```
+
+#determine first error position
+
+```{r}
+second_session_second_error_data <- second_session_data_long %>%
+  filter(duplicate ==TRUE)%>%
+  group_by(CDL_name, condition, block, trial_num) %>%
+  summarise(first_error=min(choice_order))
+
+second_session_data2 <-  second_session_data %>%
+  full_join(second_session_second_error_data) %>%
+  mutate(first_error = as.numeric(ifelse(is.na(first_error), 9, first_error)))
+
+
+```
+
+keep only dogs that have 2 sessions:
+
+```{r}
+levels(first_session_data2)
+
+age_data<-first_session_data2%>%
+  group_by(CDL_name)%>%
+  summarise(age=mean(age))
+
+combined_data <- first_session_data2 %>%
+  select(CDL_name, session, condition, block, trial_num, sex, first_error)%>%
+  full_join(second_session_data2%>%select(CDL_name, session, condition, block, trial_num, sex, first_error), by = c("CDL_name", "session", "condition", "block", "trial_num", "sex", "first_error"))%>%
+  full_join(age_data)
+
+#identify dogs that have data for both sessions
+combined_data_wide <- combined_data %>%
+  pivot_wider(names_from = session, values_from = first_error) %>%
+  rename("s1"="1", "s2" ="2")%>%
+  group_by(CDL_name)%>%
+  summarise(mean_first_error = mean(s1, na.rm = TRUE), mean_sec_error = mean(s2, na.rm = TRUE))%>%
+  ungroup()%>%
+  filter(!is.na(mean_first_error) & !is.na(mean_sec_error))
+
+#filter the data to retain only data from dogs with 2 sessions
+combined_data_red  <- combined_data  %>%
+  inner_join(combined_data_wide)%>%
+  mutate(trial_w_session = as.numeric(ifelse(block==2, trial_num+3, ifelse(block==1, trial_num, ""))))%>%
+  filter(CDL_name!="Ylvie")%>%
+  rename(Subject = CDL_name)
+
+table(combined_data_red$Subject, combined_data_red$trial_w_session)
+table(combined_data_red$Subject, combined_data_red$session)
+hist(combined_data_red$first_error)
+```
+
+model preparation: z-transformation of covariates and centering of random slope component of factor condition.
+
+```{r include=FALSE}
+combined_data_red$z.trial<-as.vector(scale(combined_data_red$trial_w_session, center = TRUE, scale=TRUE))
+combined_data_red$z.session<-as.vector(scale(combined_data_red$session, center = TRUE, scale=TRUE))
+combined_data_red$z.age<-as.vector(scale(combined_data_red$age, center = TRUE, scale=TRUE))
+combined_data_red$condition<- as.factor(combined_data_red$condition)
+combined_data_red$condition.c=as.vector(scale(as.numeric(combined_data_red$condition==levels(as.factor(combined_data_red$condition))[2]), center=TRUE, scale= FALSE))
+
+```
+
+```{r include=FALSE}
+
+#demonstration_loc_data$sum.duration_log <- log(demonstration_loc_data$sum.duration+0.001)
+# log or square root transformation does not improve the model assumptions
+
+mm1<-lme4::lmer(first_error ~ condition+z.session+ z.trial+z.age+sex+
+            (1+condition.c+z.session+ z.trial|Subject), data=combined_data_red , REML=FALSE)
+
+mm1_null<-lme4::lmer(first_error ~  z.trial+z.age+sex+
+            (1+condition.c+z.session+ z.trial|Subject), data=combined_data_red , REML=FALSE)
+
+
+anova(mm1, mm1_null, test="Chisq")
+summary(mm1)
+```
+
+```{r include=FALSE}
+diagnostics.plot(mm1, size.fac=2)
+
+ranef.diagn.plot(mm1)
+```
+
+Individual fixed effects
+
+```{r}
+library(lmerTest)
+
+mm1.reml <-
+  lmerTest::lmer(
+    first_error ~ condition + z.session + z.trial + z.age + sex +
+      (1 + condition.c + z.session + z.trial |
+         Subject),
+    data = combined_data_red ,
+    REML = TRUE,
+    control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+  )
+
+summary(mm1.reml)
+```
+
+Check for collinearity
+
+```{r}
+xx=lm(first_error ~ condition + z.session + z.trial + z.age + sex, data=combined_data_red)
+vif(xx) #no issue
+```
+
+relative model complexity
+
+```{r}
+length(residuals(mm1.reml))/
+(length(fixef(mm1.reml))+
+nrow(as.data.frame(summary(mm1.reml)$varcor)))
+```
+
+```{r }
+boot.mm1=boot.lmer(mm1, discard.warnings=F,
+nboots=1000, para=T, n.cores="all-1", resol=1000, level=0.95)
+
+mm1_boot_ci<-boot.mm1$ci.estimates
+```
+
+```{r}
+mm1_output_table <-
+  bind_cols(as.data.frame(summary(mm1.reml)$coeff),
+                  mm1_boot_ci) %>%
+  select(
+    Estimate,
+    SE = `Std. Error`,
+    LowerCI = X2.5.,
+    UpperCI = X97.5.,
+    t_value = `t value`,
+    p = `Pr(>|t|)`
+  ) %>% #
+  mutate(across(.cols = c(p), ~ format(round(.x, 3), nsmall = 3))) %>%
+  mutate(across(.cols = c(Estimate:t_value), ~ format(round(.x, 2), nsmall = 2))) %>%
+  #mutate(across(Chi2:p, ~replace_na(.x, "")))%>%
+  mutate(p = replace(p, p <= 0.000, "<0.001"))
+
+write.csv(mm1_output_table, file = "saves/mm1_output_table.csv")
+```
+
+## plotting of significant effects
+
+```{r}
+combined_data_red_agg <- combined_data_red %>%
+  group_by(Subject, session, condition)%>%
+  summarise(mean_first_error = mean(first_error))
+
+```
+
+```{r}
+session_plot<-ggplot(combined_data_red_agg, aes(x = factor(session), y = mean_first_error, fill = factor(condition)) )+ 
+  geom_boxplot(outlier.colour = "white")+
+  #geom_jitter(width=0.2, aes(group=condition))+
+  theme_bw()+
+  scale_fill_manual(values=c("#E69F00", "#56B4E9"))+
+  labs(x = "Session", y = "Mean first error position", fill = "Condition")+
+  geom_point(pch = 21, position = position_jitterdodge(), alpha = 0.5)
+
+ggsave(session_plot, file= "graphs/session_plot.png", height=5, width=6, scale=0.85)
+```
+
+## Correlation between sessions
+
+```{r}
+table(combined_data$CDL_name, combined_data$session) 
+
+combined_data_wide2 <- combined_data %>%
+  pivot_wider(names_from = session, values_from = first_error) %>%
+  rename("s1"="1", "s2" ="2")%>%
+  group_by(CDL_name)%>%
+  summarise(mean_first_error = mean(s1, na.rm = TRUE), mean_sec_error = mean(s2, na.rm = TRUE))%>%
+  ungroup()%>%
+  filter(!is.na(mean_first_error) & !is.na(mean_sec_error))%>%
+#  filter(CDL_name!="Ylvie")%>%
+  rename(Subject = CDL_name)
+
+combined_data_wide2_forced <- combined_data %>%
+  filter(condition =="forced")%>%
+  pivot_wider(names_from = session, values_from = first_error) %>%
+  rename("s1"="1", "s2" ="2")%>%
+  group_by(CDL_name)%>%
+  summarise(mean_first_error = mean(s1, na.rm = TRUE), mean_sec_error = mean(s2, na.rm = TRUE))%>%
+  ungroup()%>%
+  filter(!is.na(mean_first_error) & !is.na(mean_sec_error))%>%
+  filter(CDL_name!="Ylvie")%>%
+  rename(Subject = CDL_name)
+
+combined_data_wide2_selfordered <- combined_data %>%
+  filter(condition =="self-ordered")%>%
+  pivot_wider(names_from = session, values_from = first_error) %>%
+  rename("s1"="1", "s2" ="2")%>%
+  group_by(CDL_name)%>%
+  summarise(mean_first_error = mean(s1, na.rm = TRUE), mean_sec_error = mean(s2, na.rm = TRUE))%>%
+  ungroup()%>%
+  filter(!is.na(mean_first_error) & !is.na(mean_sec_error))%>%
+  filter(CDL_name!="Ylvie")
+  
+combined_data_wide2_condition <- combined_data %>%
+  filter(session == 1) %>%
+  select(-block)%>%
+  pivot_wider(names_from = condition, values_from = first_error) %>%
+  rename(self_ordered = "self-ordered")%>%
+  group_by(CDL_name)%>%
+  summarise(mean_forced_error = mean(forced, na.rm = TRUE), mean_selfordered_error = mean(self_ordered, na.rm = TRUE))%>%
+  ungroup()%>%
+  filter(!is.na(mean_forced_error) & !is.na(mean_selfordered_error))%>%
+  filter(CDL_name!="Ylvie")%>%
+  rename(Subject = CDL_name)
+```
+
+```{r}
+cor.test(combined_data_wide2$mean_first_error, combined_data_wide2$mean_sec_error)
+```
+
+```{r}
+cor.test(combined_data_wide2_forced$mean_first_error, combined_data_wide2_forced$mean_sec_error)
+cor.test(combined_data_wide2_selfordered$mean_first_error, combined_data_wide2_selfordered$mean_sec_error)
+cor.test(combined_data_wide2_condition$mean_forced_error, combined_data_wide2_condition$mean_selfordered_error)
+```
+
+The dogs' mean performance in the first and second session. The bubbles represent the number of individuals at that performance level. The red dashed line shows the linear regression line. The black dashed line shows the identity line.
+
+```{r}
+#### Visualisation of correlation between sessions
+session_corr_plot<-ggplot(combined_data_wide2, aes(x = mean_first_error, y = mean_sec_error))+ 
+  geom_abline(intercept = 0, slope = 1, mean_first_error = 2, alpha = 0.7, size = 0.5)+
+  stat_cor(method = "pearson", aes(x = mean_first_error, y = mean_sec_error, label = paste(..r.label..)),cor.coef.name = "r", inherit.aes = F, size = 3)+
+  geom_count(alpha = .4)+
+  scale_size(range = c(2, 3), breaks= c(1,2), name="N")+
+  geom_smooth(method=lm, color="firebrick", alpha=0.5, lty=2,se=FALSE )+
+  labs (x = "First session", y = "Second session")+
+  theme_bw()+
+  xlim(4, 8)+ ylim(4, 9)
+
+session_corr_plot
+ggsave(session_corr_plot, file = "graphs/session_corr_plot.png", width = 7, height=5, scale=0.7)
+```
+
+## strategies
+
+```{r}
+
+strategy.data<-read.csv("data/RM_both_sessions.csv")%>%
+  mutate(first_error_position = as.numeric(ifelse(first_error_position == "#N/A", 9, first_error_position)),
+         return_to_arm = as.numeric(ifelse(return_to_arm == "#N/A", NA, return_to_arm)),
+         Lag_from_last_choice = as.numeric(ifelse(Lag_from_last_choice == "#N/A", NA, Lag_from_last_choice)),
+         adjacent_arms = as.numeric(ifelse(adjacent_arms == "#DIV/0!", 0, adjacent_arms)))
+
+```
+
+```{r}
+hist(strategy.data$adjacent_arms)
+hist(strategy.data$Lag_from_last_choice)
+hist(strategy.data$return_to_arm)
+
+```
+
+## WHich arm do they visit when they commit their first error
+
+```{r}
+error_location_plot<-ggplot(strategy.data, aes(x=return_to_arm, fill= condition))+
+  geom_histogram(position="dodge") +
+ # facet_wrap(~condition)
+  theme_bw()+
+  labs(x = "Search sequence of revisited arms") + 
+ # scale_color_manual(values=c("#E69F00", "#56B4E9")) +
+  scale_fill_manual(values=c("#E69F00", "#56B4E9"))
+  
+error_location_plot
+ggsave(error_location_plot, file = "graphs/error_location_plot.png", width = 7, height=5, scale=0.7)
+```
+
+## Adjacency score
+
+```{r}
+adjacency_plot<-ggplot(strategy.data, aes(x=adjacent_arms, fill= condition))+
+  geom_histogram(position="dodge") +
+ # facet_wrap(~condition)
+  theme_bw()+
+  labs(x = "Longest sequence of adjacent visits") + 
+ # scale_color_manual(values=c("#E69F00", "#56B4E9")) +
+  scale_fill_manual(values=c("#E69F00", "#56B4E9"))+
+  scale_x_continuous(breaks = seq(0,7, 1))
+  
+adjacency_plot
+ggsave(adjacency_plot, file = "graphs/adjacency_plot.png", width = 7, height=5, scale=0.7)
+```
+
+```{r}
+strategy.data.agg <- strategy.data %>%
+  group_by(CDL_name, condition) %>%
+  summarise(mean_first_error = mean(first_error_position), mean_adjacent_seq = mean(adjacent_arms), mean_mistakes = mean(total_mistakes))
+
+strategy.data.agg.forced <- strategy.data.agg %>%
+  filter(condition=="forced")
+
+strategy.data.agg.selfordered <- strategy.data.agg %>%
+  filter(condition=="self-ordered")
+
+
+```
+
+```{r}
+cor.test(strategy.data.agg.forced$mean_first_error, strategy.data.agg.forced$mean_adjacent_seq)
+cor.test(strategy.data.agg.forced$mean_mistakes, strategy.data.agg.forced$mean_adjacent_seq)
+```
+
+```{r}
+cor.test(strategy.data.agg.selfordered$mean_first_error, strategy.data.agg.selfordered$mean_adjacent_seq)
+cor.test(strategy.data.agg.selfordered$mean_mistakes, strategy.data.agg.selfordered$mean_adjacent_seq)
+```
+
+### adjacency score compared to simulation results
+
+```{r}
+adjaceny_sim_data<-read.csv(file = "simulation/dog_updating_adjacency_simulation.csv")
+hist(adjaceny_sim_data$adjacent_arms, breaks=c(seq(from=0, to=5, 1)))
+
+#calculate mean adjacency simulation value
+adjaceny_sim_data_agg <- adjaceny_sim_data %>%
+  summarise(mean_adjacency_sim = mean(adjacent_arms))
+
+adjacent_chance <- adjaceny_sim_data_agg[1,1]
+```
+
+compare the simulation (based on MS1 sequences) to the dogs' performance.
+
+```{r}
+t.test(strategy.data.agg.wide$forced, mu = adjacent_chance)
+
+t.test(strategy.data.agg.wide$self_ordered, mu = adjacent_chance)
+
+```
+
+```{r}
+adjacency_plot_agg<-ggplot(strategy.data.agg, aes(y=mean_adjacent_seq, x= condition))+
+  geom_boxplot() +
+  geom_count(alpha=0.3)+
+ # facet_wrap(~condition)
+  theme_bw()+
+  labs(y = "Longest sequence of adjacent visits") +
+  ylim(0, 7) + 
+  geom_hline(yintercept = adjacent_chance, color= "firebrick", lty=2)
+ # scale_color_manual(values=c("#E69F00", "#56B4E9")) +
+ # scale_fill_manual(values=c("#E69F00", "#56B4E9"))+
+#  scale_x_continuous(breaks = seq(0,7, 1))
+  
+adjacency_plot_agg
+ggsave(adjacency_plot_agg, file = "graphs/adjacency_plot_agg.png", width = 7, height=5, scale=0.7)
+```
+
+comparison of adjacent choices between conditions
+
+```{r}
+strategy.data.agg.wide <- strategy.data.agg %>%
+  select(CDL_name, condition, mean_adjacent_seq)%>%
+  pivot_wider(names_from=condition, values_from=mean_adjacent_seq)%>%
+  rename(self_ordered = "self-ordered")
+
+t.test(strategy.data.agg.wide$forced, strategy.data.agg.wide$self_ordered)
+
+```
+
+## Time until first error occurred
+
+```{r}
+time_first_err_data <- read.csv("data/First_Session_Time_Analysis.csv",  na.strings=c("#N/A"))
+hist(time_first_err_data$time_delay)
+```
+
+```{r}
+time_first_err_data$z.trial <-
+  as.vector(scale(
+    time_first_err_data$trial_number,
+    center = TRUE,
+    scale = TRUE
+  ))
+
+time_first_err_data$z.first_error_position<-as.vector(scale(time_first_err_data$first_error_position, center = TRUE, scale=TRUE))
+
+time_first_err_data$condition <- as.factor(time_first_err_data$condition)
+levels(time_first_err_data$condition)
+time_first_err_data$condition.c1=as.vector(scale(as.numeric(time_first_err_data$condition==levels(as.factor(time_first_err_data$condition))[2]), center=TRUE, scale= FALSE))
+
+time_first_err_data$log.time_delay <- log(time_first_err_data$time_delay)
+hist(time_first_err_data$log.time_delay)
+```
+
+fit model
+
+```{r}
+mm1.time_first_error <-
+  lme4::lmer(
+    log.time_delay ~ condition + z.trial + z.first_error_position +
+      (1 | Subject) + (0 + z.trial | Subject) +
+      (0 + condition.c1 |
+         Subject) +
+      (0 + z.first_error_position | Subject),
+    data = time_first_err_data,
+    REML = FALSE
+  )
+```
+
+```{r}
+diagnostics.plot(mm1.time_first_error, size.fac=2)
+
+ranef.diagn.plot(mm1.time_first_error)
+```
+
+Individual fixed effects
+
+```{r}
+library(lmerTest)
+
+mm1.time_first_error.reml<-lmerTest::lmer(
+    log.time_delay ~ condition + z.trial + z.first_error_position +
+      (1 | Subject) + (0 + z.trial | Subject) +
+      (0 + condition.c1 |
+         Subject) +
+      (0 + z.first_error_position | Subject),
+    data = time_first_err_data,
+    REML=TRUE)
+
+summary(mm1.time_first_error.reml)
+```
+
+Colinearity checks
+
+```{r}
+library(car)
+xx=lm(log.time_delay ~ condition + z.trial + z.first_error_position, data=time_first_err_data)
+vif(xx)
+```
+
+relative model complexity
+
+```{r}
+length(residuals(mm1.time_first_error.reml))/
+(length(fixef(mm1.time_first_error.reml))+
+nrow(as.data.frame(summary(mm1.time_first_error.reml)$varcor)))
+```
+
+model stability
+
+```{r}
+
+mm1.time_first_error.stab=glmm.model.stab(model.res=mm1.time_first_error, contr=NULL, para=F, data=NULL)
+
+mm1.time_first_error.stab$summary
+
+m.stab.plot(round(mm1.time_first_error.stab$summary[, -1], 3))
+```
+
+--\> model stable with regard to the fixed effects
+
+```{r}
+boot.mm1.time_first_error=boot.lmer(mm1.time_first_error, 
+nboots=1000, para=T, n.cores="all-1", resol=1000, level=0.95)
+
+mm1.time_first_error_boot_ci<-boot.mm1.time_first_error$ci.estimates
+```
+
+#### effect size
+
+```{r}
+library(MuMIn)
+r.squaredGLMM(mm1.time_first_error)
+```
+
+#### output table
+
+```{r}
+
+
+model_table_mm1.time_first_error <- bind_cols(as.data.frame(summary(mm1.time_first_error.reml)$coefficients),
+                         mm1.time_first_error_boot_ci) %>% 
+  dplyr::select(Estimate, SE = `Std. Error`, LowerCI = X2.5., UpperCI = X97.5., t = `t value`, df = df, p = `Pr(>|t|)`) %>%
+  mutate(across(.cols = c(p), ~ round(.x, 3))) %>% 
+  mutate(across(.cols = c(Estimate:df), ~ round(.x, 2))) %>% 
+  mutate(p=replace(p, p==0, "<0.001"))
+
+write.csv(model_table_mm1.time_first_error , file = "saves/model_table_mm1.time_first_error.csv")
+```
