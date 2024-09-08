@@ -11,30 +11,15 @@ knitr::opts_chunk$set(echo = TRUE)
  rm(list=ls())
 library (car)
 library(lme4)
-#library(readr)
 library(tidyverse)
-#library(sjPlot)
-#library(ggthemes)
-#library(ggplot2)
-#library(scales)
-#library(gridExtra)
-#library(psych)
 library(cowplot)
 library(glmmTMB)
 library(ggsignif)
 library("gghalves")
-#library(summarytools)
 source("./functions/diagnostic_fcns.r")
 source("./functions/glmm_stability.r")
 source("./functions/boot_glmm.r")
 source("./functions/boot_glmm2.r")
-# source("../../R scripts/Roger/glmmTMB_stability.r")
-# source("../../R scripts/Roger/boxplotteR.r")
-# source("../../R scripts/Roger/boot_glmm.r")
-# source("../../R scripts/Roger/boot_glmmTMB.r")
-# source("../../R scripts/Roger/corr_exact.r")
-# source("../../R scripts/Roger/drop1_para_glmmtmb.r")
-# source("../../R scripts/Roger/drop1_para.r")
 
 #load(file ="exp2_5s_capuchins_GLMM_error_data_wCI.RData")
 ```
@@ -127,17 +112,7 @@ choice.id = 0
 for (i in 1:length(u.trial.id)) {
   sel.data = subset(test.data.prep, trial.id == u.trial.id[i])
   cup.id = 1:8
-  # if (nrow(sel.data) == 2) {
-  #   cup.id = 3:4
-  # } else if (nrow(sel.data) == 3) {
-  #   cup.id = 3:5
-  # } else if (nrow(sel.data) == 4) {
-  #   cup.id = 2:5
-  # } else if (nrow(sel.data) == 5) {
-  #   cup.id = 2:6
-  # } else{
-  #   cup.id = 1:6
-  # }
+
   for (j in 2:nrow(sel.data)) {
     choice.id = choice.id + 1
     idata = data.frame(sel.data[j,], cup.id = cup.id, choice.id = choice.id)
@@ -170,17 +145,6 @@ test.data$previous.correct = as.factor(c("no", "yes")[1 + as.numeric(test.data$p
 test.data$any.error.earlier = as.factor(test.data$any.error.earlier)
 number.cups = as.vector(table(test.data$choice.id)[as.character(test.data$choice.id)])
 table(number.cups, test.data$Number_arms)
-# cup.is.edge =
-#   (test.data$Number_arms == 8 &
-#      (test.data$cup.id == 1 | test.data$cup.id == 5)) |
-#   (test.data$Number_boxes == 4 &
-#      (test.data$cup.id == 2 | test.data$cup.id == 5)) |
-#   (test.data$Number_boxes == 5 &
-#      (test.data$cup.id == 2 | test.data$cup.id == 6))
-# cup.is.edge = as.factor(c("no", "yes")[1 + as.numeric(cup.is.edge)])
-# cup.is.edge.code = as.numeric(cup.is.edge == levels(cup.is.edge)[2])
-# test.data$cup.is.edge.code = cup.is.edge.code - mean(cup.is.edge.code)
-
 
 
 age_data<-all.data%>%
@@ -198,9 +162,6 @@ test.data <-
   select(-Age)%>%
   full_join(age_data)
   
-
-
-
 
 write.csv(test.data, "data/dog_updating_radial_maze_error_data.csv")
 ```
@@ -297,6 +258,10 @@ test.data$z.age = as.vector(scale(test.data$Age))
 test.data$z.duration_from_1st_choice = as.vector(scale(test.data$duration_from_1st_choice))
 
 ```
+```{r}
+save.image("self_ordered_search_error_analysis.RData")
+```
+
 
 ```{r}
 mean(test.data$lag.from.last.choice)
